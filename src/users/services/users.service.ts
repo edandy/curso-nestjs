@@ -1,15 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcrypt';
 import { UsersEntity } from '../entities/users.entity';
 import { DeleteResult, Repository, UpdateResult } from 'typeorm';
-import { UserDto, UserUpdateDto } from '../dto/user.dto';
+import { UserDto, UserToProjectDto, UserUpdateDto } from '../dto/user.dto';
 import { ErrorManager } from '../../utils/error.manager';
+import { UsersProjectsEntity } from '../entities/usersProjects.entity';
+import * as process from 'process';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(UsersEntity)
     private readonly userRepository: Repository<UsersEntity>,
+    @InjectRepository(UsersProjectsEntity)
+    private readonly usersProjectsRepository: Repository<UsersProjectsEntity>,
   ) {}
   index() {
     return 'Hello from users module';
@@ -17,6 +22,7 @@ export class UsersService {
 
   public async createUser(body: UserDto): Promise<UsersEntity> {
     try {
+      body.password = await bcrypt.hash(body.password, +process.env.HASH_SALT);
       return await this.userRepository.save(body);
     } catch (error) {
       throw new Error(error);
@@ -43,6 +49,8 @@ export class UsersService {
       const user: UsersEntity = await this.userRepository
         .createQueryBuilder('user')
         .where({ id })
+        .leftJoin('user.projectsIncludes', 'projectsIncludes')
+        .leftJoin('projectsIncludes.project', 'project')
         .getOne();
 
       if (!user) {
@@ -51,6 +59,28 @@ export class UsersService {
           message: 'No se pudo actualizar',
         });
       }
+      return user;
+    } catch (error) {
+      throw ErrorManager.createSignatureError(error.message);
+    }
+  }
+
+  public async relationToProject(body: UserToProjectDto) {
+    try {
+      return await this.usersProjectsRepository.save(body);
+    } catch (error) {
+      throw ErrorManager.createSignatureError(error.message);
+    }
+  }
+
+  public async findBy({ key, value }: { key: keyof UserDto; value: any }) {
+    try {
+      const user: UsersEntity = await this.userRepository
+        .createQueryBuilder('user')
+        .addSelect('user.password')
+        .where({ [key]: value })
+        .getOne();
+
       return user;
     } catch (error) {
       throw ErrorManager.createSignatureError(error.message);
